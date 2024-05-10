@@ -6,3 +6,6 @@ in the dir that you are working on simply just write runAll.sh {dir_of_data_or_m
 
 once compiled, ressam takes two arguments; the usage is = ressam {dir}out_data_all.root {dir}out_mc_all.root
 red one is always the second histogram given to the ressam
+
+
+exotic filter works by just simply typing exotic_filter_mc.sh within the {mc_dir}
