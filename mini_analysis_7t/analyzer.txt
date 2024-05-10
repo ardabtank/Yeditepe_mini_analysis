@@ -1,0 +1,13 @@
+		NASIL GENEL KULLANIMA AÇILIR
+mini_analysis_7t dosyasının pathini kopyalamanız gerekiyor öncesinde
+terminalden        nano ~/.bashrc kodunu girip "fi" ve "unset rc" arasına
+export PATH=${PATH}:/home/uzobas/Downloads/mini_analysis_7t
+			  ^^^^^^------ sizin username'iniz olması gerekiyor
+yazıp ctrl+X ile çıkış yaparken değişimden emin olup olmadığımızı soracak Y diye geçiyoruz.
+Tekrardan bize dosya ismini soracak ona da enter basıp tekrardan terminal ekranına gelmiş oluyoruz.
+Sonrasında tekrardan aynı terminalden       source ~/.bashrc    yazıp işi bitiriyoruz.
+*******************************************************************************************
+			ANALYZER
+içinde bulunduğunuz directoryde direkt olarak runnner.exe çalıştırırmış gibi
+sadece      analzyer.sh      yazıp çalıştırıyoruz. Dosya içinde çıktıları atmak
+için analyses isminde bir directory oluşturuyor ve bütün analizleri içine atıyor.
