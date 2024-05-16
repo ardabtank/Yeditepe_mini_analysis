@@ -1,7 +1,0 @@
-g++ -o normaliser normaliser.cpp -std=c++11 -Wall `root-config --cflags --libs`
-
-g++ -o ressam paint.cpp -std=c++11 -Wall `root-config --cflags --libs`
-
-
-
-
