@@ -32,6 +32,19 @@ void tree_reader::Loop()
     return;
   Long64_t nbytes = 0, nb = 0;
   Long64_t nentries = fChain->GetEntriesFast();
+
+ static int DATA_MC_CHECK=1;
+  TString check_name= (TString) m_destination;
+  
+  if(check_name.Contains("data")==1){
+    cout<<"Working with data mode\n";
+    DATA_MC_CHECK=1;
+  }
+  if(check_name.Contains("mc")==1){
+    cout<<"Working with mc mode \n";
+    DATA_MC_CHECK=0;
+  }
+  
   
   // unrestricted
   TH1D *CrossSection = new TH1D("XSection", "XSection", 3, 0, 3);
@@ -268,7 +281,7 @@ void tree_reader::Loop()
     int DATA_MC_CHECK=1;
     // Bizim işimiz burada başlıyo....
     // Elektron histogramlarını doldur....
-    static float weight=1.0;
+    
     if(DATA_MC_CHECK ==1){
     float weight=1.0;
     }
