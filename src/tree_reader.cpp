@@ -32,9 +32,20 @@ void tree_reader::Loop()
     return;
   Long64_t nbytes = 0, nb = 0;
   Long64_t nentries = fChain->GetEntriesFast();
+  // data to mc switch
+  static int DATA_MC_CHECK=1;
+  TString check_name= (TString) m_destination;
+  
+  if(check_name.Contains("data")==1){
+  cout<<"Working with Data mode\n";
+  DATA_MC_CHECK=1;
+  }if(check_name.Contains("mc")==1){
+  cout<<"Working with MC mode \n";
+  DATA_MC_CHECK=0;
+  }
   
   // unrestricted
-  TH1D *CrossSection = new TH1D("XSection", "XSection", 3, 0, 3);
+  
   // electron
   TH1F *h_unr_el_n = new TH1F("n_el", "n_el", 10, 0, 10);
   TH1F *h_unr_el_E = new TH1F("E_el", "E_el", 100, -10, 550);
@@ -265,7 +276,7 @@ void tree_reader::Loop()
     // if (Cut(ientry) < 0) continue;
     // lep_e->at(0) lep_n bunu kullan
     // (*lep_e)[int x]
-    int DATA_MC_CHECK=1;
+    
     // Bizim işimiz burada başlıyo....
     // Elektron histogramlarını doldur....
     static float weight=1.0;
@@ -285,7 +296,7 @@ void tree_reader::Loop()
     //float weight= 1.0; // WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA WEIGHT FOR DATA
     h_unr_met_E->Fill((met_et) / float(1000),weight);
     h_unr_met_phi->Fill(met_phi,weight);
-    CrossSection->Fill(XSection);
+    
     // Serhat: Bütün işi üstteki gibi kocaman bir if blok içine almaktansa :
     // Burada şunu desek ? : if(lep_n == 0) continue;
     // yani zaten içinde lepton olmayan bir eventi dogrudan çöpe atacağız..
@@ -683,8 +694,7 @@ void tree_reader::Loop()
   h_unr_muon_presence_met_phi->Write();
   h_unr_jet_presence_met_E->Write();
   h_unr_jet_presence_met_phi->Write();
-  //XSection
-  CrossSection->Write();
+  
   // for >=2 electrons
   // e^-
   h_2el_el_n->Write();
