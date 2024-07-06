@@ -1,0 +1,119 @@
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils import resample
+from imblearn.over_sampling import SMOTE
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, roc_auc_score, roc_curve
+import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras import regularizers
+import matplotlib.pyplot as plt
+import json
+
+# Load the dataset
+file_path = "RELEVANT CSV FILE HERE"
+df = pd.read_csv(file_path)
+
+#Automatically determine the minority and majority classes of signal and background to make their number of raws equal.
+
+# Check class distribution
+print("Class distribution:")
+print(df['b/s'].value_counts())
+
+# Get class distribution
+class_counts = df['b/s'].value_counts()
+
+# Identify minority and majority classes
+minority_class_label = class_counts.idxmin()
+majority_class_label = class_counts.idxmax()
+
+print(f"Minority class label: {minority_class_label}")
+print(f"Majority class label: {majority_class_label}")
+
+# Separate minority and majority classes
+minority_class = df[df['b/s'] == minority_class_label]
+majority_class = df[df['b/s'] == majority_class_label]
+
+# Check class sizes
+print(f"Minority class (Label={minority_class_label}) size: {len(minority_class)}")
+print(f"Majority class (Label={majority_class_label}) size: {len(majority_class)}")
+
+# Resample majority class to match minority class size
+majority_class_downsampled = resample(majority_class,
+                                      replace=False,    # Sample without replacement
+                                      n_samples=len(minority_class),  # Match minority class size
+                                      random_state=42)  # Reproducibility
+
+# Combine minority class with downsampled majority class
+df_balanced = pd.concat([minority_class, majority_class_downsampled])
+
+# Shuffle the data
+df_balanced = df_balanced.sample(frac=1, random_state=79).reset_index(drop=True)
+
+# Check class distribution in the balanced dataset
+print("Balanced dataset class distribution:")
+print(df_balanced['b/s'].value_counts())
+print(df_balanced.sample(5))
+
+# Train/test split (with 80:20 split)
+X = df_balanced.drop('b/s', axis=1)
+y = df_balanced['b/s']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# BUILDING A NEURAL NETWORK
+tf.random.set_seed(42)
+
+# Normalization
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+
+model = tf.keras.Sequential([
+    tf.keras.layers.Dense(4, activation='sigmoid', kernel_regularizer=regularizers.l2(0.001)),
+    tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=regularizers.l2(0.001)),
+    tf.keras.layers.Dense(128, activation='sigmoid', kernel_regularizer=regularizers.l2(0.001)),
+    tf.keras.layers.Dense(1, activation='sigmoid')
+])
+
+model.compile(
+    loss=tf.keras.losses.BinaryCrossentropy(),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+    metrics=[tf.keras.metrics.BinaryAccuracy(name='accuracy')]
+)
+
+# Train the model and save the history
+history = model.fit(X_train, y_train, epochs=100, batch_size=1024, validation_data=(X_test, y_test))
+
+# Evaluate the model
+y_pred = model.predict(X_test)
+y_pred_classes = (y_pred > 0.5).astype("int32")
+
+accuracy = accuracy_score(y_test, y_pred_classes)
+f1 = f1_score(y_test, y_pred_classes)
+roc_auc = roc_auc_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred_classes)
+
+print(f"Accuracy: {accuracy}")
+print(f"F1 Score: {f1}")
+print(f"ROC AUC Score: {roc_auc}")
+print("Confusion Matrix:")
+print(conf_matrix)
+
+# Plot ROC curve
+fpr, tpr, thresholds = roc_curve(y_test, y_pred)
+plt.plot(fpr, tpr, linestyle='--', label='ROC Curve')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend()
+plt.show()
+
+# Save the history to a JSON file. (Modeli load ederken kullanılacak)
+with open('training_history.json', 'w') as f:
+    json.dump(history.history, f)
+
+# Save the model
+model.save('ZPrime_prediction_model.h5')
