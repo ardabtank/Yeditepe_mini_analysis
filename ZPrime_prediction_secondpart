@@ -1,0 +1,46 @@
+#SECOND PART: LOADING THE MODEL AND GETTING INPUTS TO PREDICT THAT WHETHER THE DATA GIVES SIGNAL OR BACKGROUND
+import json
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+import pandas as pd
+import pickle
+from sklearn.preprocessing import StandardScaler
+
+# Load the saved model
+model = tf.keras.models.load_model('ZPrime_prediction_model.h5')
+
+# Function to get user input for new data
+def get_user_input():
+    data = {}
+    data['el0_E'] = [float(input("Enter el0_E: "))]
+    data['el0_phi'] = [float(input("Enter el0_phi: "))]
+    data['el0_eta'] = [float(input("Enter el0_eta: "))]
+    data['pt_el0'] = [float(input("Enter pt_el0: "))]
+    data['el1_E'] = [float(input("Enter el1_E: "))]
+    data['el1_phi'] = [float(input("Enter el1_phi: "))]
+    data['el1_eta'] = [float(input("Enter el1_eta: "))]
+    data['pt_el1'] = [float(input("Enter pt_el1: "))]
+    data['delta_R'] = [float(input("Enter delta_R: "))]
+    data['jet_n'] = [int(input("Enter jet_n: "))]
+    data['met_et'] = [float(input("Enter met_et: "))]
+    data['HT'] = [float(input("Enter HT: "))]
+    return pd.DataFrame(data)
+
+# Get new data from user
+new_data = get_user_input()
+
+# Load the scaler
+with open('scaler.pkl', 'rb') as f:
+    scaler = pickle.load(f)
+
+# Scale the new data
+new_data_scaled = scaler.transform(new_data)
+
+# Make predictions
+predictions = model.predict(new_data_scaled)
+
+# Convert prediction probabilities to binary predictions
+prediction_classes = ['Signal' if prob > 0.5 else 'Background' for prob in predictions]
+
+print(prediction_classes)
