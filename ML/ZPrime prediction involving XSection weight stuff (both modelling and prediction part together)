@@ -1,0 +1,425 @@
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils import resample
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras import regularizers
+import pickle
+import matplotlib.pyplot as plt
+from tabulate import tabulate
+from IPython.display import display, HTML
+
+# CLASS THAT GIVES COLORS TO TEXTS
+class ColorPrinter:
+
+    @staticmethod
+    def print_red(text):
+        return f"<span style='color:red; font-size: 16px;'>{text}</span>"
+
+    @staticmethod
+    def print_orange(text):
+        return f"<span style='color:orange; font-size: 16px;'>{text}</span>"
+
+    @staticmethod
+    def print_green(text):
+        return f"<span style='color:green; font-size: 16px;'>{text}</span>"
+
+    @staticmethod
+    def print_yellow(text):
+        return f"<span style='color:yellow; font-size: 16px;'>{text}</span>"
+
+    @staticmethod
+    def print_blue(text):
+        return f"<span style='color:blue; font-size: 16px;'>{text}</span>"
+
+    @staticmethod
+    def print_magenta(text):
+        return f"<span style='color:magenta; font-size: 16px;'>{text}</span>"
+
+    @staticmethod
+    def print_cyan(text):
+        return f"<span style='color:cyan; font-size: 16px;'>{text}</span>"
+
+# CLASS THAT CONTAINS THE PROCESSES ABOUT PREPARING THE DATA TO CREATE A MODEL
+class DataProcessor:
+    def __init__(self, file_paths):
+        self.file_paths = file_paths
+        self.df = None
+        self.df_balanced = None
+        self.color_printer = ColorPrinter()
+
+    def load_data(self):
+        dataframes = []
+        for file_path in self.file_paths:
+            df = pd.read_csv(file_path)
+            dataframes.append(df)
+
+        self.df = pd.concat(dataframes, ignore_index=True)
+        return self.df
+
+    def balance_data(self):
+        class_counts = self.df['DATA_MC_CHECK'].value_counts()
+        min_class_count = class_counts.min()
+
+        balanced_dfs = []
+        for label in class_counts.index:
+            df_class = self.df[self.df['DATA_MC_CHECK'] == label]
+            df_class_balanced = df_class.sample(min_class_count, replace=False, random_state=42)
+            balanced_dfs.append(df_class_balanced)
+
+        self.df_balanced = pd.concat(balanced_dfs).sample(frac=1, random_state=79).reset_index(drop=True)
+        return self.df_balanced
+
+    def preprocess_data(self):
+        self.df_balanced['weight'] = self.df_balanced['Xsection']
+        X = self.df_balanced.drop(['DATA_MC_CHECK', 'Xsection'], axis=1)
+        y = self.df_balanced['DATA_MC_CHECK']
+        weights = self.df_balanced['weight']
+
+        X_train, X_temp, y_train, y_temp, w_train, w_temp = train_test_split(X, y, weights, test_size=0.2, random_state=42)
+        X_val, X_test, y_val, y_test, w_val, w_test = train_test_split(X_temp, y_temp, w_temp, test_size=0.5, random_state=42)
+
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_val = scaler.transform(X_val)
+        X_test = scaler.transform(X_test)
+
+        return X_train, X_val, X_test, y_train, y_val, y_test, w_train, w_val, w_test
+
+    def check_datasets(self, X_train, X_val, X_test):
+        combined_data = np.concatenate([X_train, X_val, X_test])
+        combined_labels = np.concatenate([
+            np.full(len(X_train), 0),
+            np.full(len(X_val), 1),
+            np.full(len(X_test), 2)
+        ])
+
+        df_combined = pd.DataFrame(combined_data)
+        df_combined['dataset_label'] = combined_labels
+
+        duplicate_rows = df_combined.duplicated(subset=df_combined.columns[:-1], keep=False)
+        if duplicate_rows.any():
+            display(HTML(self.color_printer.print_red("Duplicate rows found between the datasets!")))
+        else:
+            display(HTML(self.color_printer.print_green("No duplicate rows found between the datasets.")))
+
+        return df_combined[duplicate_rows]
+
+    def check_sample_weights(self, weights):
+        if np.any(np.isnan(weights)):
+            display(HTML(self.color_printer.print_red("Sample weights contain NaN values!")))
+        elif np.any(weights <= 0):
+            display(HTML(self.color_printer.print_red("Sample weights contain zero or negative values!")))
+        else:
+            display(HTML(self.color_printer.print_green("Sample weights are valid.")))
+
+        # Additional checks for distribution
+        weight_mean = np.mean(weights)
+        weight_std = np.std(weights)
+        weight_min = np.min(weights)
+        weight_max = np.max(weights)
+
+        print(f"Mean weight: {weight_mean}")
+        print(f"Standard deviation of weights: {weight_std}")
+        print(f"Min weight: {weight_min}")
+        print(f"Max weight: {weight_max}")
+        print(weights)
+
+# CLASS THAT BUILDS THE MODEL
+class ModelBuilder:
+    def __init__(self):
+        self.model = None
+
+    def build_model(self):
+        self.model = tf.keras.Sequential([
+            tf.keras.layers.Dense(12, activation='relu', kernel_regularizer=regularizers.l2(0.001)),
+            tf.keras.layers.Dense(16, activation='relu', kernel_regularizer=regularizers.l2(0.001)),
+            tf.keras.layers.Dense(8, activation='relu', kernel_regularizer=regularizers.l2(0.001)),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+
+        self.model.compile(
+            loss=tf.keras.losses.BinaryCrossentropy(),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+            metrics=[tf.keras.metrics.BinaryAccuracy(name='accuracy')]
+        )
+
+        return self.model
+
+def create_weighted_dataset(X, y, weights, batch_size=512):
+    dataset = tf.data.Dataset.from_tensor_slices((X, y, weights))
+    dataset = dataset.shuffle(buffer_size=1024).batch(batch_size)
+    return dataset.map(lambda X, y, w: (X, y, w))
+
+
+file_paths = [
+    "/content/drive/MyDrive/Zanaliz/1 agustus 2024/ZPrime.csv",
+    "/content/drive/MyDrive/Zanaliz/1 agustus 2024/background.csv"
+]
+
+data_processor = DataProcessor(file_paths)
+df = data_processor.load_data()
+df_balanced = data_processor.balance_data()
+X_train, X_val, X_test, y_train, y_val, y_test, w_train, w_val, w_test = data_processor.preprocess_data()
+
+# CHECKING DATASETS
+data_processor.check_datasets(X_train, X_val, X_test)
+
+# CHECKING SAMPLE WEIGHTS
+data_processor.check_sample_weights(w_train)
+data_processor.check_sample_weights(w_val)
+data_processor.check_sample_weights(w_test)
+
+# MODEL BUILDING
+model_builder = ModelBuilder()
+model = model_builder.build_model()
+early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+# Create datasets
+train_dataset = create_dataset(X_train, y_train, w_train)
+val_dataset = create_dataset(X_val, y_val, w_val)
+test_dataset = create_dataset(X_test, y_test, w_test)
+
+# TRAINING THE MODEL
+display(HTML(ColorPrinter.print_yellow("<br><br>TRAINING THE MODEL:<br><br>")))
+
+history = model.fit(
+    X_train,
+    y_train,
+    sample_weight=w_train,
+    epochs=100,
+    batch_size=512,
+    validation_data=(X_test, y_test, w_test),
+    callbacks=[early_stopping]
+)
+
+model.save('ZPrime_prediction_model.keras')
+
+
+
+
+
+
+
+#                                                     *** PERFORMANCE METRICS INTRODUCTION ***
+
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, recall_score, confusion_matrix, ConfusionMatrixDisplay, precision_recall_curve, matthews_corrcoef, log_loss, roc_curve
+
+# EVALUATION OF THE MODEL
+display(HTML(ColorPrinter.print_yellow("<br><br>EVALUATION OF THE MODEL:<br><br>")))
+
+y_pred = model.predict(X_test)
+y_pred_classes = (y_pred > 0.5).astype("int32")
+
+accuracy = accuracy_score(y_test, y_pred_classes, sample_weight=w_test)
+f1 = f1_score(y_test, y_pred_classes, sample_weight=w_test)
+roc_auc = roc_auc_score(y_test, y_pred, sample_weight=w_test)
+precision = precision_score(y_test, y_pred_classes, sample_weight=w_test)
+recall = recall_score(y_test, y_pred_classes, sample_weight=w_test)
+mcc = matthews_corrcoef(y_test, y_pred_classes, sample_weight=w_test)
+logloss = log_loss(y_test, y_pred, sample_weight=w_test)
+
+print("Accuracy:", accuracy)
+print("F1 Score:", f1)
+print("ROC AUC Score:", roc_auc)
+print("Precision:", precision)
+print("Recall:", recall)
+print("MCC:", mcc)
+print("Log Loss:", logloss)
+
+# Plotting ROC curve
+def plot_roc_curve(y_test, y_pred, sample_weight):
+    fpr, tpr, thresholds = roc_curve(y_test, y_pred, sample_weight=sample_weight)
+    plt.plot(fpr, tpr, linestyle='--', label='ROC Curve')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.legend()
+    plt.show()
+
+def evaluate_metric(metric_name, value):
+    if metric_name in ["Accuracy", "F1 Score", "Precision", "Recall"]:
+        if value < 0.60:
+            return "Bad"
+        elif value < 0.75:
+            return "Good enough"
+        elif value < 0.85:
+            return "Good"
+        elif value < 0.90:
+            return "Very good"
+        else:
+            return "Extremely good"
+    elif metric_name == "ROC AUC Score":
+        if value < 0.65:
+            return "Bad"
+        elif value < 0.75:
+            return "Good enough"
+        elif value < 0.85:
+            return "Good"
+        elif value < 0.90:
+            return "Very good"
+        else:
+            return "Extremely good"
+    elif metric_name == "Log Loss":
+        if value > 1.0:
+            return "Bad"
+        elif value > 0.5:
+            return "Good enough"
+        elif value > 0.2:
+            return "Good"
+        elif value > 0.1:
+            return "Very good"
+        else:
+            return "Extremely good"
+    elif metric_name == "Matthews Correlation Coefficient":
+        if value < 0.0:
+            return "Bad"
+        elif value < 0.30:
+            return "Good enough"
+        elif value < 0.60:
+            return "Good"
+        elif value < 0.85:
+            return "Very good"
+        else:
+            return "Extremely good"
+    return "Unknown"
+
+# THE PROCESS OF PERFORMANCE METRICS
+display(HTML(ColorPrinter.print_yellow("<br><br>PERFORMANCE METRICS:<br><br>")))
+
+metrics = {
+    "Accuracy": accuracy,
+    "F1 Score": f1,
+    "ROC AUC Score": roc_auc,
+    "Precision": precision,
+    "Recall": recall,
+    "Matthews Correlation Coefficient": mcc,
+    "Log Loss": logloss
+}
+
+for metric_name, value in metrics.items():
+    evaluation = evaluate_metric(metric_name, value)
+    if evaluation == "Bad":
+        display(HTML(f"{metric_name}: {value:.10f} - {ColorPrinter.print_red(evaluation)}"))
+    elif evaluation == "Good enough":
+        display(HTML(f"{metric_name}: {value:.10f} - {ColorPrinter.print_magenta(evaluation)}"))
+    elif evaluation == "Good":
+        display(HTML(f"{metric_name}: {value:.10f} - {ColorPrinter.print_cyan(evaluation)}"))
+    elif evaluation == "Very good":
+        display(HTML(f"{metric_name}: {value:.10f} - {ColorPrinter.print_yellow(evaluation)}"))
+    elif evaluation == "Extremely good":
+        display(HTML(f"{metric_name}: {value:.10f} - {ColorPrinter.print_green(evaluation)}"))
+
+# EXPLANATION OF METRICS ABOVE
+display(HTML(ColorPrinter.print_yellow("<br>Explanations of above metrics:<br>")))
+display(HTML("<br><strong>Accuracy:</strong> Measures the overall correctness of the model's predictions. It is the ratio of correctly predicted instances to the total instances. High accuracy in particle physics ensures reliable identification of particle events."))
+display(HTML("<br><strong>F1 Score:</strong> The harmonic mean of precision and recall. It balances the trade-off between precision and recall, making it a useful metric for evaluating the performance of classifiers, especially on imbalanced datasets commonly found in particle physics."))
+display(HTML("<br><strong>ROC AUC Score:</strong> Represents the area under the Receiver Operating Characteristic curve. A higher AUC indicates better model performance in distinguishing between the positive and negative classes. In particle physics, a high AUC score is crucial for distinguishing between signal and background events."))
+display(HTML("<br><strong>Precision:</strong> The ratio of true positive predictions to the total predicted positives. High precision means that the classifier has a low false positive rate, which is vital in particle physics to ensure that identified particle events are actually signal events."))
+display(HTML("<br><strong>Recall:</strong> The ratio of true positive predictions to the actual positives. High recall ensures that most of the actual signal events are identified by the model, which is critical in experiments where missing a signal event can be costly."))
+display(HTML("<br><strong>Matthews Correlation Coefficient:</strong> A measure of the quality of binary classifications. It takes into account true and false positives and negatives, and is generally regarded as a balanced measure which can be used even if the classes are of very different sizes. High MCC indicates a strong correlation between the predicted and actual classes, which is essential in particle physics for reliable event classification."))
+display(HTML("<br><strong>Log Loss:</strong> Measures the performance of a classification model where the prediction input is a probability value between 0 and 1. Lower log loss indicates better performance. In particle physics, minimizing log loss helps in achieving more accurate probabilistic predictions for particle events, improving overall model reliability."))
+
+# CONFUSION MATRIX
+display(HTML(ColorPrinter.print_orange("<br>CONFUSION MATRIX:<br>")))
+print(conf_matrix)
+display(HTML("<br><strong>Confusion Matrix:</strong> A table used to evaluate the performance of a classification model by comparing the actual and predicted classifications. It shows the counts of true positive, true negative, false positive, and false negative predictions. In particle physics, the confusion matrix helps in understanding the types of errors the model makes and how well it can distinguish between different classes of particle events."))
+
+display(HTML(ColorPrinter.print_yellow("<br><br>GRAPHS:<br>")))
+
+# ROC CURVE PLOTTING
+display(HTML(ColorPrinter.print_orange("<br><br>ROC CURVE:<br><br>")))
+print("The ROC curve, or Receiver Operating Characteristic curve, is a graphical representation of a classifier's performance. It plots the True Positive Rate (Sensitivity) against the False Positive Rate (1 - Specificity) at various threshold settings. In particle physics, this curve helps in understanding the trade-off between detecting true signal events and the rate of false alarms. A perfect classifier has an area under the ROC curve (AUC) of 1, indicating it perfectly distinguishes between signal and background. \n")
+plot_roc_curve(y_test, y_pred, sample_weight=w_test)
+
+# DEFINING THE LOSS OF TRAIN AND TEST
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+
+# DEFINING THE ACCURACY OF TRAIN AND TEST
+train_accuracy = history.history['accuracy']
+val_accuracy = history.history['val_accuracy']
+
+epochs = range(1, len(loss) + 1)
+
+# THE GRAPH OF TRAINING AND VALIDATION LOSS
+display(HTML(ColorPrinter.print_orange("<br><br>TRAINING AND VALIDATION LOSS:<br><br>")))
+print("The Training and Validation Loss graphs illustrate the model's performance over the training epochs. The loss function quantifies the difference between the predicted and true values. In particle physics experiments, minimizing the loss function is crucial for improving the accuracy of particle identification models. A decreasing training loss indicates that the model is learning from the data, while the validation loss helps in monitoring overfitting.\n")
+plt.figure(figsize=(12, 5))
+plt.plot(epochs, loss, 'b', label='Training loss')
+plt.plot(epochs, val_loss, 'r', label='Validation loss')
+plt.title('Training and Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.show()
+
+# THE GRAPH OF TRAINING AND VALIDATION ACCURACY
+display(HTML(ColorPrinter.print_orange("<br><br>TRAINING AND VALIDATION ACCURACY:<br><br>")))
+print("The Training and Validation Accuracy graphs show how well the model's predictions match the actual data over the epochs. High accuracy means the model is correctly identifying signal and background events. In the context of particle physics, high accuracy ensures that we can trust the model's predictions when identifying rare particle interactions or decays.\n")
+plt.figure(figsize=(12, 5))
+plt.plot(epochs, train_accuracy, 'b', label='Training accuracy')
+plt.plot(epochs, val_accuracy, 'r', label='Validation accuracy')
+plt.title('Training and Validation Accuracy')
+plt.xlabel('Epochs')
+plt.ylabel('Accuracy')
+plt.legend()
+plt.show()
+
+# PRECISION-RECALL CURVE PLOT
+display(HTML(ColorPrinter.print_orange("<br><br>PRECISION-RECALL CURVE:<br><br>")))
+print("The Precision-Recall curve is crucial for evaluating the performance of classifiers on imbalanced datasets. Precision indicates the fraction of true positive predictions among all positive predictions, while recall measures the fraction of true positives identified among all actual positives. In particle physics, high precision and recall are vital for ensuring that rare particle events are correctly identified without being overwhelmed by false positives.\n")
+precision, recall, _ = precision_recall_curve(y_test, y_pred)
+plt.figure()
+plt.plot(recall, precision, marker='.', label='Precision-Recall curve')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall curve')
+plt.legend()
+plt.show()
+
+
+
+
+# EXTRA PREDICTIONS WITH VALIDATION DATASET DISTINCT FROM THE OTHERS
+
+# Sample 150 examples from the validation data
+sample_size = 150
+X_val_sample = X_val[:sample_size]
+y_val_sample = y_val[:sample_size]
+w_val_sample = w_val[:sample_size]
+
+# Make predictions on the validation sample
+val_predictions = model.predict(X_val_sample)
+
+# Convert prediction probabilities to binary predictions
+prediction_classes_val = ['Signal' if prob > 0.5 else 'Background' for prob in val_predictions]
+
+# Create a DataFrame to display the results
+results_df = pd.DataFrame({
+    'True Class': ['Signal' if cls == 1 else 'Background' for cls in y_val_sample],
+    'Predicted Class': prediction_classes_val,
+    'Prediction Probability': val_predictions.flatten()
+})
+
+# Display the results as a table
+display(HTML(ColorPrinter.print_yellow("<br><br>PREDICTION RESULTS ON VALIDATION SET SAMPLE:<br><br>")))
+display(HTML(results_df.to_html(index=False)))
+
+# Save the table as a PNG file
+fig, ax = plt.subplots(figsize=(12, 4))
+ax.axis('tight')
+ax.axis('off')
+table = ax.table(cellText=results_df.values, colLabels=results_df.columns, cellLoc='center', loc='center')
+table.auto_set_font_size(False)
+table.set_fontsize(10)
+table.scale(1.2, 1.2)
+plt.savefig('/content/prediction_results.png', bbox_inches='tight')
+
+# Display message for downloading the file
+display(HTML(ColorPrinter.print_yellow("<br><br>TABLE SAVED AS PNG:<br><br>")))
+print("The table has been saved as 'prediction_results.png'. You can download it from the files section in the left sidebar.")
+
+
